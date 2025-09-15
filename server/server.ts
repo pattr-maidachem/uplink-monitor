@@ -33,7 +33,7 @@ const sqlConfig = {
 };
 
 // Database connection pool
-let pool: sql.ConnectionPool;
+let pool: any;
 
 // Initialize database connection pool
 async function initializePool() {
@@ -311,8 +311,8 @@ async function getIpApiInfo() {
       };
     }
     throw new Error('IP API request failed');
-  } catch (error) {
-    console.error('Error getting IP info from ip-api.com:', error.message);
+  } catch (error: any) {
+    console.error('Error getting IP info from ip-api.com:', error.message || error);
     throw error;
   }
 }
@@ -353,8 +353,8 @@ async function getFreeIpApiInfo() {
       asn: response.data.asn,
       isProxy: response.data.isProxy
     };
-  } catch (error) {
-    console.error('Error getting IP info from freeipapi.com:', error.message);
+  } catch (error: any) {
+    console.error('Error getting IP info from freeipapi.com:', error.message || error);
     throw error;
   }
 }
@@ -393,8 +393,8 @@ async function getIpWhoIsInfo() {
       asn: response.data.connection.asn,
       isProxy: response.data.security?.proxy || false
     };
-  } catch (error) {
-    console.error('Error getting IP info from ipwho.is:', error.message);
+  } catch (error: any) {
+    console.error('Error getting IP info from ipwho.is:', error.message || error);
     throw error;
   }
 }
@@ -440,8 +440,8 @@ async function getIpifyInfo() {
       countryCode: response.data.country_code,
       asn: response.data.asn
     };
-  } catch (error) {
-    console.error('Error getting IP info from ipify.org + ipapi.co:', error.message);
+  } catch (error: any) {
+    console.error('Error getting IP info from ipify.org + ipapi.co:', error.message || error);
     throw error;
   }
 }
@@ -470,7 +470,7 @@ async function getPublicIpInfo() {
       cachedIpInfo = { data, timestamp: now };
       return data;
     } catch (error) {
-      console.error(`${service.name} failed:`, error.message);
+      console.error(`${service.name} failed:`, (error as any).message || error);
       // Continue to next service
     }
   }

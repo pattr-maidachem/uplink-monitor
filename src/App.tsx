@@ -98,7 +98,7 @@ function App() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       setMetrics(data);
-      
+
       // Check if IP changed
       if (data.publicIpInfo?.ip && data.publicIpInfo.ip !== lastIpRef.current) {
         console.log('IP changed, refreshing data...');
@@ -137,7 +137,7 @@ function App() {
           Last Updated: {formatThaiTime(metrics.timestamp)}
         </div>
       </header>
-      
+
       <div className="grid-container">
         {/* Active ISPs Table */}
         <div className="card active-isps">
@@ -217,14 +217,14 @@ function App() {
         <div className="card network-speed">
           <h2>Network Speed</h2>
           <div className="speed-metrics">
-            <div className="metric">
+            {/* <div className="metric">
               <span className="label">Download</span>
               <span className="value">{metrics.networkMetrics.downloadSpeed} MB/s</span>
             </div>
             <div className="metric">
               <span className="label">Upload</span>
               <span className="value">{metrics.networkMetrics.uploadSpeed} MB/s</span>
-            </div>
+            </div> */}
             <div className="metric">
               <span className="label">Latency</span>
               <span className="value">{metrics.networkMetrics.latency} ms</span>
@@ -254,7 +254,15 @@ function App() {
         </div>
 
         {/* Data Transfer */}
-        <div className="card data-transfer">
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ minHeight: '360px', overflow: 'hidden', borderRadius: '1.2rem' }}>
+            <div style={{ width: '100%', height: 0, paddingBottom: '50%', position: 'relative' }}>
+              <iframe style={{ border: 'none', position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', minHeight: '360px', overflow: 'hidden !important' }} src="//openspeedtest.com/speedtest"></iframe>
+            </div>
+          </div>
+          Provided by <a href="https://openspeedtest.com">OpenSpeedtest.com</a>
+        </div>
+        {/* <div className="card data-transfer">
           <h2>Total Data Transfer</h2>
           <div className="transfer-metrics">
             <div className="metric">
@@ -270,7 +278,7 @@ function App() {
               <span className="value">{metrics.systemMetrics.uptime} hours</span>
             </div>
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   )
