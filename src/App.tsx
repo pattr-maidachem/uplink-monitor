@@ -94,6 +94,45 @@ const updateHistory = <T extends { time: string; value: number }>(prevHistory: T
   return newHistory.length > maxLength ? newHistory.slice(newHistory.length - maxLength) : newHistory;
 };
 
+// Helper function to update the favicon
+const updateFavicon = (status: 'ok' | 'warning' | 'error' | 'disconnected') => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) return;
+
+  let color = '#9ca3af'; // Gray for disconnected
+  switch (status) {
+    case 'ok':
+      color = '#10b981'; // Green for OK
+      break;
+    case 'warning':
+      color = '#f59e0b'; // Yellow for warning
+      break;
+    case 'error':
+      color = '#ef4444'; // Red for error
+      break;
+  }
+
+  ctx.clearRect(0, 0, 32, 32);
+  ctx.beginPath();
+  ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'shortcut icon';
+    document.head.appendChild(link);
+  }
+  link.type = 'image/png';
+  link.href = canvas.toDataURL('image/png');
+};
+
+
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -120,6 +159,7 @@ function App() {
   const [ispDowntime7d, setIspDowntime7d] = useState<IspDowntime7d | null>(null);
   const [gatewayStatus, setGatewayStatus] = useState<'up' | 'down' | 'loading'>('loading');
   const [internetUptime7d, setInternetUptime7d] = useState<InternetUptime7d | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const [cpuHistory, setCpuHistory] = useState<{ time: string; value: number }[]>([]);
   const [memoryHistory, setMemoryHistory] = useState<{ time: string; value: number }[]>([]);
 
@@ -199,7 +239,20 @@ function App() {
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
 
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setIsConnected(true);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      setIsConnected(false);
+      setMetrics(null); // Clear metrics on disconnect
+    };
+
     ws.onmessage = (event) => {
+      // Ensure we are marked as connected on first message
+      if (!isConnected) setIsConnected(true);
       const data: Metrics = JSON.parse(event.data);
       setMetrics(data);
 
@@ -262,6 +315,30 @@ function App() {
       clearInterval(shortInterval);
     };
   }, []);
+
+  // Effect to update document title and favicon
+  useEffect(() => {
+    if (!isConnected || !metrics) {
+      document.title = 'Uplink Monitor - Disconnected';
+      updateFavicon('disconnected');
+      return;
+    }
+
+    const latency = parseFloat(metrics.networkMetrics.latency);
+    document.title = `${metrics.publicIpInfo.isp} - ${latency}ms`;
+
+    if (gatewayStatus === 'down') {
+      updateFavicon('error');
+    } else if (isNaN(latency)) {
+      updateFavicon('disconnected');
+    } else if (latency > 200) {
+      updateFavicon('error');
+    } else if (latency > 100) {
+      updateFavicon('warning');
+    } else {
+      updateFavicon('ok');
+    }
+  }, [metrics, gatewayStatus, isConnected]);
 
   if (!metrics) {
     return <div className="loading">Loading network metrics...</div>;
@@ -390,7 +467,16 @@ function App() {
   return (
     <div className="dashboard">
       <header className="header">
-        <h1>Network Dashboard</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
+          <img src="/Logo-small-small.png" alt="" style={{ width: '64px' }} />
+          <div>
+            <h1>Uplink Monitor</h1>
+            <span style={{ opacity: 0.4 }}>Maida Chemical Co., Ltd.</span>
+          </div>
+        </div>
+        <div className={`swap-log-status ${isConnected ? 'active' : 'inactive'}`}>
+          {isConnected ? 'Websocket Connected' : 'Websocket Disconnected'}
+        </div>
         <div className="timestamp">
           Last Updated: {formatThaiTime(metrics.timestamp)}
         </div>
