@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import * as si from 'systeminformation';
 import axios from 'axios';
 import sql from 'mssql';
+import ping from 'ping';
 
 // Load environment variables
 import dotenv from 'dotenv';
@@ -11,6 +12,9 @@ dotenv.config();
 
 const app = express();
 const port = process.env.SERVER_PORT || 3001;
+
+// IMPORTANT: Update this with the actual IP of your default gateway/firewall
+const GATEWAY_IP = process.env.GATEWAY_IP || '192.168.1.1';
 
 // MS SQL Server Configuration
 const sqlConfig = {
@@ -108,6 +112,70 @@ app.get('/api/active-isps', async (req, res) => {
   }
 });
 
+// API endpoint for gateway/firewall status
+app.get('/api/gateway-status', async (req, res) => {
+  try {
+    const result = await ping.promise.probe(GATEWAY_IP, {
+      timeout: 2,
+    });
+    res.json({ status: result.alive ? 'up' : 'down' });
+  } catch (error) {
+    console.error('Ping failed:', error);
+    res.status(500).json({ status: 'down' });
+  }
+});
+
+// API endpoint for ISP downtime count in the last 7 days
+app.get('/api/isp-downtime-7d', async (req, res) => {
+  try {
+    if (!pool) {
+      throw new Error('Database connection not initialized');
+    }
+
+    const result = await pool.request().query(`
+      SELECT COUNT(*) as downtimeCount 
+      FROM dbo.swap 
+      WHERE timestamp >= DATEADD(day, -7, SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time')
+    `);
+    
+    res.json({ downtimeCount: result.recordset[0].downtimeCount || 0 });
+  } catch (err) {
+    console.error('Error fetching 7-day ISP downtime:', err);
+    res.status(500).json({ error: 'Failed to fetch 7-day ISP downtime' });
+  }
+});
+
+// API endpoint for Internet Uptime percentage in the last 7 days
+app.get('/api/internet-uptime-7d', async (req, res) => {
+  try {
+    if (!pool) {
+      throw new Error('Database connection not initialized');
+    }
+
+    const result = await pool.request().query(`
+      DECLARE @sevenDaysAgo DATETIMEOFFSET = DATEADD(day, -7, SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time');
+      
+      SELECT 
+        (
+          SELECT CAST(COUNT(*) AS FLOAT) 
+          FROM dbo.gateway_log 
+          WHERE status = 'up' AND timestamp >= @sevenDaysAgo
+        ) as upCount,
+        (
+          SELECT CAST(COUNT(*) AS FLOAT) 
+          FROM dbo.gateway_log 
+          WHERE timestamp >= @sevenDaysAgo
+        ) as totalCount
+    `);
+    
+    res.json(result.recordset[0]);
+  } catch (err) {
+    console.error('Error fetching 7-day internet uptime:', err);
+    res.status(500).json({ error: 'Failed to fetch 7-day internet uptime' });
+  }
+});
+
+
 // Create HTTP server
 const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);
@@ -170,11 +238,39 @@ async function initializeDatabase() {
       ELSE
       BEGIN
         PRINT 'Swap table already exists';
-      END
-      
-      CREATE INDEX idx_timestamp ON swap(timestamp);
-      CREATE INDEX idx_isp ON swap(isp);
+      END;
     `);
+
+    // Create the gateway_log table if it doesn't exist
+    await pool.request().query(`
+      IF NOT EXISTS (
+        SELECT * FROM sys.tables WHERE name = 'gateway_log' AND schema_id = SCHEMA_ID('dbo')
+      )
+      BEGIN
+        CREATE TABLE dbo.gateway_log (
+          id INT IDENTITY(1,1) PRIMARY KEY,
+          status NVARCHAR(10) NOT NULL,
+          timestamp DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time'
+        );
+        
+        CREATE INDEX idx_gateway_log_timestamp ON dbo.gateway_log(timestamp);
+        
+        PRINT 'gateway_log table created successfully';
+      END
+      ELSE
+      BEGIN
+        PRINT 'gateway_log table already exists';
+      END;
+    `);
+
+    // Ensure indexes exist (non-breaking if they do)
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_timestamp' AND object_id = OBJECT_ID('dbo.swap'))
+        CREATE INDEX idx_timestamp ON dbo.swap(timestamp);
+      IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_isp' AND object_id = OBJECT_ID('dbo.swap'))
+        CREATE INDEX idx_isp ON dbo.swap(isp);
+    `);
+
     console.log('Database initialized successfully');
   } catch (err) {
     console.error('Error initializing database:', err);
@@ -223,6 +319,30 @@ async function checkAndLogIspChange(newIsp: string, newIp: string) {
   }
 }
 
+// Function to log gateway status periodically
+async function logGatewayStatus() {
+  if (!pool) {
+    return;
+  }
+  try {
+    const result = await ping.promise.probe(GATEWAY_IP, { timeout: 2 });
+    const status = result.alive ? 'up' : 'down';
+    
+    await pool.request()
+      .input('status', sql.NVarChar, status)
+      .query('INSERT INTO dbo.gateway_log (status) VALUES (@status)');
+      
+  } catch (error) {
+    try {
+      await pool.request()
+        .input('status', sql.NVarChar, 'down')
+        .query('INSERT INTO dbo.gateway_log (status) VALUES (@status)');
+    } catch (dbError) {
+      console.error('Error logging gateway status to DB:', dbError);
+    }
+  }
+}
+
 // Initialize database and pool
 async function startServer() {
   try {
@@ -234,6 +354,9 @@ async function startServer() {
     // Start continuous monitoring
     await startContinuousMonitoring();
     console.log('Continuous monitoring started');
+
+    // Start logging gateway status every minute
+    setInterval(logGatewayStatus, 60000);
 
     console.log('Server initialization complete');
   } catch (err) {

@@ -1,5 +1,18 @@
 import { useEffect, useState, useRef } from 'react'
 import './App.css'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  type ChartOptions,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
 
 interface PublicIpInfo {
   ip: string;
@@ -48,6 +61,24 @@ interface ActiveISP {
   is_active: number;
 }
 
+interface NetworkUsage7d {
+  totalDownload7d: string;
+  totalUpload7d: string;
+}
+
+interface IspDowntime7d {
+  downtimeCount: number;
+}
+
+interface GatewayStatus {
+  status: 'up' | 'down';
+}
+
+interface InternetUptime7d {
+  upCount: number;
+  totalCount: number;
+}
+
 // Helper function to format date (server sends in format: 'yyyy-MM-dd HH:mm:ss')
 const formatThaiTime = (dateString: string) => {
   const [datePart, timePart] = dateString.split(' ');
@@ -55,14 +86,42 @@ const formatThaiTime = (dateString: string) => {
   const [hours, minutes, seconds] = timePart.split(':');
 
   return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-
-  return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
 };
+
+// Helper function to update history arrays
+const updateHistory = <T extends { time: string; value: number }>(prevHistory: T[], newValue: number, newTime: string, maxLength = 30): T[] => {
+  const newHistory = [...prevHistory, { time: newTime, value: newValue } as T];
+  return newHistory.length > maxLength ? newHistory.slice(newHistory.length - maxLength) : newHistory;
+};
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
+
+ChartJS.defaults.color = '#f0f0f0';
+ChartJS.defaults.plugins.legend.labels.color = '#f0f0f0';
+ChartJS.defaults.plugins.title.color = '#f0f0f0';
+ChartJS.defaults.plugins.tooltip.titleColor = '#f0f0f0';
+ChartJS.defaults.plugins.tooltip.bodyColor = '#f0f0f0';
 
 function App() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [swapLogs, setSwapLogs] = useState<SwapLog[]>([]);
   const [activeIsps, setActiveIsps] = useState<ActiveISP[]>([]);
+  const [networkUsage7d, setNetworkUsage7d] = useState<NetworkUsage7d | null>(null);
+  const [latencyHistory, setLatencyHistory] = useState<{ time: string; value: number }[]>([]);
+  const [ispDowntime7d, setIspDowntime7d] = useState<IspDowntime7d | null>(null);
+  const [gatewayStatus, setGatewayStatus] = useState<'up' | 'down' | 'loading'>('loading');
+  const [internetUptime7d, setInternetUptime7d] = useState<InternetUptime7d | null>(null);
+  const [cpuHistory, setCpuHistory] = useState<{ time: string; value: number }[]>([]);
+  const [memoryHistory, setMemoryHistory] = useState<{ time: string; value: number }[]>([]);
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
   const WS_URL = import.meta.env.VITE_WS_URL;
@@ -89,6 +148,51 @@ function App() {
     }
   };
 
+  // Function to fetch 7-day network usage
+  const fetchNetworkUsage7d = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/network-usage-7d`);
+      const data = await response.json();
+      setNetworkUsage7d(data);
+    } catch (error) {
+      console.error('Error fetching 7-day network usage:', error);
+    }
+  };
+
+  // Function to fetch 7-day ISP downtime
+  const fetchIspDowntime7d = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/isp-downtime-7d`);
+      const data = await response.json();
+      setIspDowntime7d(data);
+    } catch (error) {
+      console.error('Error fetching 7-day ISP downtime:', error);
+    }
+  };
+
+  // Function to fetch gateway status
+  const fetchGatewayStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/gateway-status`);
+      const data: GatewayStatus = await response.json();
+      setGatewayStatus(data.status);
+    } catch (error) {
+      console.error('Error fetching gateway status:', error);
+      setGatewayStatus('down'); // Assume down if fetch fails
+    }
+  };
+
+  // Function to fetch 7-day internet uptime
+  const fetchInternetUptime7d = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/internet-uptime-7d`);
+      const data = await response.json();
+      setInternetUptime7d(data);
+    } catch (error) {
+      console.error('Error fetching 7-day internet uptime:', error);
+    }
+  };
+
   // Track the last known IP for change detection
   const lastIpRef = useRef<string | null>(null);
 
@@ -96,8 +200,29 @@ function App() {
     const ws = new WebSocket(WS_URL);
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      const data: Metrics = JSON.parse(event.data);
       setMetrics(data);
+
+      // Update latency history
+      const newLatency = parseFloat(data.networkMetrics.latency);
+      if (!isNaN(newLatency)) {
+        const newTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLatencyHistory(prev => updateHistory(prev, newLatency, newTime));
+      }
+
+      // Update CPU history
+      const newCpuLoad = parseFloat(data.systemMetrics.cpuLoad);
+      if (!isNaN(newCpuLoad)) {
+        const newTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setCpuHistory(prev => updateHistory(prev, newCpuLoad, newTime));
+      }
+
+      // Update Memory history
+      const newMemoryUsed = parseFloat(data.systemMetrics.memoryUsed);
+      if (!isNaN(newMemoryUsed)) {
+        const newTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setMemoryHistory(prev => updateHistory(prev, newMemoryUsed, newTime));
+      }
 
       // Check if IP changed
       if (data.publicIpInfo?.ip && data.publicIpInfo.ip !== lastIpRef.current) {
@@ -112,22 +237,155 @@ function App() {
     // Fetch initial data
     fetchSwapLogs();
     fetchActiveIsps();
+    fetchNetworkUsage7d();
+    fetchIspDowntime7d();
+    fetchInternetUptime7d();
+    fetchGatewayStatus();
 
     // Set up interval for periodic refresh as backup
-    const interval = setInterval(() => {
+    const longInterval = setInterval(() => {
       fetchSwapLogs();
       fetchActiveIsps();
+      fetchInternetUptime7d();
+      fetchNetworkUsage7d();
+      fetchIspDowntime7d();
     }, 30000);
+
+    // Set up a more frequent interval for gateway status
+    const shortInterval = setInterval(() => {
+      fetchGatewayStatus();
+    }, 5000); // Check every 5 seconds
 
     return () => {
       ws.close();
-      clearInterval(interval);
+      clearInterval(longInterval);
+      clearInterval(shortInterval);
     };
   }, []);
 
   if (!metrics) {
     return <div className="loading">Loading network metrics...</div>;
   }
+
+  // Calculate latency stats
+  const highestLatency = latencyHistory.length > 0 ? Math.max(...latencyHistory.map(h => h.value)).toFixed(2) : 'N/A';
+  const lowestLatency = latencyHistory.length > 0 ? Math.min(...latencyHistory.map(h => h.value)).toFixed(2) : 'N/A';
+  
+  // Calculate uptime percentage
+  const uptimePercentage = internetUptime7d && internetUptime7d.totalCount > 0
+    ? ((internetUptime7d.upCount / internetUptime7d.totalCount) * 100).toFixed(2)
+    : null;
+
+
+  const latencyChartData = {
+    labels: latencyHistory.map(h => h.time),
+    datasets: [
+      {
+        label: 'Latency (ms)',
+        data: latencyHistory.map(h => h.value),
+        fill: true,
+        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+        borderColor: 'rgba(99, 102, 241, 1)',
+        tension: 0.4,
+        pointBackgroundColor: 'rgba(99, 102, 241, 1)',
+        pointBorderColor: '#fff',
+        pointHoverBackgroundColor: '#fff',
+        pointHoverBorderColor: 'rgba(99, 102, 241, 1)',
+      },
+    ],
+  };
+
+  const latencyChartOptions: ChartOptions<'line'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      title: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(17, 24, 39, 0.8)',
+        titleColor: 'var(--text-primary)',
+        bodyColor: 'var(--text-primary)',
+        borderColor: 'var(--border-color)',
+        borderWidth: 1,
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: '#333' },
+        ticks: { color: '#f0f0f0' },
+      },
+      y: {
+        min: 0,
+        max: 100,
+        grid: { color: 'rgba(240, 240, 240, 0.1)' },
+        ticks: { color: '#f0f0f0', callback: (value) => `${value}ms` },
+      },
+    },
+  };
+
+  const cpuChartData = {
+    labels: cpuHistory.map(h => h.time),
+    datasets: [
+      {
+        label: 'CPU Load (%)',
+        data: cpuHistory.map(h => h.value),
+        fill: true,
+        backgroundColor: 'rgba(239, 68, 68, 0.2)',
+        borderColor: 'rgba(239, 68, 68, 1)',
+        tension: 0.4,
+        pointBackgroundColor: 'rgba(239, 68, 68, 1)',
+        pointBorderColor: '#fff',
+        pointHoverBackgroundColor: '#fff',
+        pointHoverBorderColor: 'rgba(239, 68, 68, 1)',
+      },
+    ],
+  };
+
+  const memoryChartData = {
+    labels: memoryHistory.map(h => h.time),
+    datasets: [
+      {
+        label: 'Memory Usage (%)',
+        data: memoryHistory.map(h => h.value),
+        fill: true,
+        backgroundColor: 'rgba(245, 158, 11, 0.2)',
+        borderColor: 'rgba(245, 158, 11, 1)',
+        tension: 0.4,
+        pointBackgroundColor: 'rgba(245, 158, 11, 1)',
+        pointBorderColor: '#fff',
+        pointHoverBackgroundColor: '#fff',
+        pointHoverBorderColor: 'rgba(245, 158, 11, 1)',
+      },
+    ],
+  };
+
+  const systemChartOptions: ChartOptions<'line'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      title: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(17, 24, 39, 0.8)',
+        titleColor: '#f0f0f0',
+        bodyColor: '#f0f0f0',
+        borderColor: '#555',
+        borderWidth: 1,
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: '#333' },
+        ticks: { color: '#f0f0f0' },
+      },
+      y: {
+        min: 0,
+        max: 100,
+        grid: { color: 'rgba(240, 240, 240, 0.1)' },
+        ticks: { color: '#f0f0f0', callback: (value) => `${value}%` },
+      },
+    },
+  };
 
   return (
     <div className="dashboard">
@@ -139,6 +397,58 @@ function App() {
       </header>
 
       <div className="grid-container">
+        {/* Network Latency Graph */}
+        <div className="card network-latency">
+          <h2>Network Latency</h2>
+          <div className="latency-chart-container">
+            <Line options={latencyChartOptions} data={latencyChartData} />
+          </div>
+        </div>
+
+        <div className="card data-transfer">
+          <h2>Overview</h2>
+          <div className="transfer-metrics">
+            <div className="metric">
+              <span className="label">Uptime (7d)</span>
+              <span className="value">{uptimePercentage ? `${uptimePercentage}%` : '...'}
+              </span>
+            </div>
+            <div className="metric">
+              <span className="label">ISP Downtime (7d)</span>
+              <span className="value">{ispDowntime7d ? `${ispDowntime7d.downtimeCount} times` : '...'}</span>
+            </div>
+            <div className="metric">
+              <span className="label">Highest Latency</span>
+              <span className="value">{highestLatency} ms</span>
+            </div>
+            <div className="metric">
+              <span className="label">Lowest Latency</span>
+              <span className="value">{lowestLatency} ms</span>
+            </div>
+            <div className="metric">
+              <span className="label">Firewall</span>
+              <div className={`isp-status ${gatewayStatus === 'up' ? 'active' : 'inactive'}`}>
+                <span className={`status-indicator ${gatewayStatus === 'up' ? 'active' : 'inactive'}`}></span>
+                {gatewayStatus === 'loading' ? 'Checking...' : gatewayStatus === 'up' ? 'Up' : 'Down'}
+              </div>
+            </div>
+            <div className="metric">
+              <span className="label">Monitor Uptime</span>
+              <span className="value">{metrics.systemMetrics.uptime} hours</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Data Transfer */}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ minHeight: '360px', overflow: 'hidden', borderRadius: '1.2rem' }}>
+            <div style={{ width: '100%', height: 0, paddingBottom: '50%', position: 'relative' }}>
+              <iframe style={{ border: 'none', position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', minHeight: '360px', overflow: 'hidden !important' }} src="//openspeedtest.com/speedtest"></iframe>
+            </div>
+          </div>
+          Provided by <a href="https://openspeedtest.com">OpenSpeedtest.com</a>
+        </div>
+
         {/* Active ISPs Table */}
         <div className="card active-isps">
           <h2>Active ISPs</h2>
@@ -176,14 +486,14 @@ function App() {
         {/* Public IP Information */}
         <div className="card ip-info">
           <h2>Public IP Information</h2>
-          <div className="ip-details">
-            <div className="ip-address">{metrics.publicIpInfo.ip}</div>
+          <div className="ip-details" style={{ margin: 'auto' }}>
+            <div className="ip-address" style={{ fontSize: '3.2rem' }}>{metrics.publicIpInfo.ip}</div>
             <div className="location">
               <p>{metrics.publicIpInfo.city}, {metrics.publicIpInfo.region}</p>
               <p>{metrics.publicIpInfo.country}</p>
               <p className="timezone">{metrics.publicIpInfo.timezone}</p>
             </div>
-            <div className="connection-info">
+            <div className="connection-info" style={{ marginTop: '2.4rem' }}>
               <div className="isp">
                 <strong>ISP:</strong> {metrics.publicIpInfo.isp}
               </div>
@@ -213,54 +523,23 @@ function App() {
           </div>
         </div>
 
-        {/* Network Speed */}
-        <div className="card network-speed">
-          <h2>Network Speed</h2>
-          <div className="speed-metrics">
-            {/* <div className="metric">
-              <span className="label">Download</span>
-              <span className="value">{metrics.networkMetrics.downloadSpeed} MB/s</span>
-            </div>
-            <div className="metric">
-              <span className="label">Upload</span>
-              <span className="value">{metrics.networkMetrics.uploadSpeed} MB/s</span>
-            </div> */}
-            <div className="metric">
-              <span className="label">Latency</span>
-              <span className="value">{metrics.networkMetrics.latency} ms</span>
-            </div>
-          </div>
-        </div>
-
         {/* System Performance */}
-        <div className="card system-metrics">
+        <div className="card system-performance-large">
           <h2>System Performance</h2>
-          <div className="performance-metrics">
-            <div className="metric">
-              <span className="label">CPU Load</span>
-              <div className="progress-bar">
-                <div className="progress" style={{ width: `${metrics.systemMetrics.cpuLoad}%` }}></div>
+          <div className="dual-chart-container">
+            <div className="chart-wrapper">
+              <h3>CPU Load</h3>
+              <div className="chart-inner">
+                <Line options={systemChartOptions} data={cpuChartData} />
               </div>
-              <span className="value">{metrics.systemMetrics.cpuLoad}%</span>
             </div>
-            <div className="metric">
-              <span className="label">Memory Usage</span>
-              <div className="progress-bar">
-                <div className="progress" style={{ width: `${metrics.systemMetrics.memoryUsed}%` }}></div>
+            <div className="chart-wrapper">
+              <h3>Memory Usage</h3>
+              <div className="chart-inner">
+                <Line options={systemChartOptions} data={memoryChartData} />
               </div>
-              <span className="value">{metrics.systemMetrics.memoryUsed}%</span>
             </div>
           </div>
-        </div>
-
-        {/* Data Transfer */}
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ minHeight: '360px', overflow: 'hidden', borderRadius: '1.2rem' }}>
-            <div style={{ width: '100%', height: 0, paddingBottom: '50%', position: 'relative' }}>
-              <iframe style={{ border: 'none', position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', minHeight: '360px', overflow: 'hidden !important' }} src="//openspeedtest.com/speedtest"></iframe>
-            </div>
-          </div>
-          Provided by <a href="https://openspeedtest.com">OpenSpeedtest.com</a>
         </div>
         {/* <div className="card data-transfer">
           <h2>Total Data Transfer</h2>
@@ -284,4 +563,4 @@ function App() {
   )
 }
 
-export default App
+export default App;

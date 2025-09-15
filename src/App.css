@@ -411,6 +411,25 @@ body {
   gap: 0.25rem;
 }
 
+.network-latency {
+  grid-column: span 1;
+}
+
+.latency-chart-container {
+  position: relative;
+  height: 250px;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.chart-container {
+  position: relative;
+  height: 250px;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+
 .metric .value::after {
   content: attr(data-unit);
   font-size: 0.875rem;
@@ -434,19 +453,36 @@ body {
 }
 
 /* System Performance */
-.performance-metrics {
-  display: grid;
+.system-performance-large {
+  grid-column: 1 / -1;
+}
+
+.dual-chart-container {
+  display: flex;
   gap: 1.5rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
 }
 
-.performance-metrics .metric {
+.chart-wrapper {
+  flex: 1;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-wrapper h3 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.chart-inner {
   position: relative;
-}
-
-.performance-metrics .value {
-  position: absolute;
-  right: 1rem;
-  top: 1rem;
+  height: 280px;
+  width: 100%;
 }
 
 /* Data Transfer */
