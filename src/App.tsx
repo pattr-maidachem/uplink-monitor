@@ -94,6 +94,22 @@ const updateHistory = <T extends { time: string; value: number }>(prevHistory: T
   return newHistory.length > maxLength ? newHistory.slice(newHistory.length - maxLength) : newHistory;
 };
 
+// Helper function for "time ago"
+const timeAgo = (date: Date): string => {
+  // const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+  // if (seconds < 5) {
+  //   return "just now";
+  // }
+  // if (seconds < 60) {
+  //   return `${seconds} seconds ago`;
+  // }
+  // const minutes = Math.floor(seconds / 60);
+  // if (minutes < 60) {
+  //   return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+  // }
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
 // Helper function to update the favicon
 const updateFavicon = (status: 'ok' | 'warning' | 'error' | 'disconnected') => {
   const canvas = document.createElement('canvas');
@@ -160,6 +176,7 @@ function App() {
   const [gatewayStatus, setGatewayStatus] = useState<'up' | 'down' | 'loading'>('loading');
   const [internetUptime7d, setInternetUptime7d] = useState<InternetUptime7d | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [cpuHistory, setCpuHistory] = useState<{ time: string; value: number }[]>([]);
   const [memoryHistory, setMemoryHistory] = useState<{ time: string; value: number }[]>([]);
 
@@ -255,6 +272,7 @@ function App() {
       if (!isConnected) setIsConnected(true);
       const data: Metrics = JSON.parse(event.data);
       setMetrics(data);
+      setLastUpdated(new Date());
 
       // Update latency history
       const newLatency = parseFloat(data.networkMetrics.latency);
@@ -309,10 +327,16 @@ function App() {
       fetchGatewayStatus();
     }, 5000); // Check every 5 seconds
 
+    // Interval to re-render the "time ago" text
+    const timeAgoInterval = setInterval(() => {
+      setLastUpdated(prev => prev ? new Date(prev.getTime()) : null);
+    }, 5000);
+
     return () => {
       ws.close();
       clearInterval(longInterval);
       clearInterval(shortInterval);
+      clearInterval(timeAgoInterval);
     };
   }, []);
 
@@ -478,7 +502,7 @@ function App() {
           {isConnected ? 'Websocket Connected' : 'Websocket Disconnected'}
         </div>
         <div className="timestamp">
-          Last Updated: {formatThaiTime(metrics.timestamp)}
+          Last Updated: {lastUpdated ? timeAgo(lastUpdated) : '...'}
         </div>
       </header>
 
