@@ -48,6 +48,17 @@ interface ActiveISP {
   is_active: number;
 }
 
+// Helper function to format date (server sends in format: 'yyyy-MM-dd HH:mm:ss')
+const formatThaiTime = (dateString: string) => {
+  const [datePart, timePart] = dateString.split(' ');
+  const [year, month, day] = datePart.split('-');
+  const [hours, minutes, seconds] = timePart.split(':');
+
+  return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+
+  return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+};
+
 function App() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [swapLogs, setSwapLogs] = useState<SwapLog[]>([]);
@@ -123,7 +134,7 @@ function App() {
       <header className="header">
         <h1>Network Dashboard</h1>
         <div className="timestamp">
-          Last Updated: {new Date(metrics.timestamp).toLocaleString()}
+          Last Updated: {formatThaiTime(metrics.timestamp)}
         </div>
       </header>
       
@@ -147,7 +158,7 @@ function App() {
                     <td className="isp-name">{isp.isp}</td>
                     <td className="isp-ip">{isp.ip}</td>
                     <td className="isp-time">
-                      {new Date(isp.timestamp).toLocaleString()}
+                      {formatThaiTime(isp.timestamp)}
                     </td>
                     <td>
                       <div className={`isp-status ${isp.is_active ? 'active' : 'inactive'}`}>
@@ -192,7 +203,7 @@ function App() {
                 <div className="swap-log-isp">{log.isp}</div>
                 <div className="swap-log-ip">{log.ip}</div>
                 <div className="swap-log-time">
-                  {new Date(log.timestamp).toLocaleString()}
+                  {formatThaiTime(log.timestamp)}
                 </div>
                 <div className={`swap-log-status ${log.uplink ? 'active' : 'inactive'}`}>
                   {log.uplink ? 'Active' : 'Inactive'}

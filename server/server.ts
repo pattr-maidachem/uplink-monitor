@@ -62,7 +62,7 @@ app.get('/api/swap-logs', async (req, res) => {
       SELECT 
         isp,
         ip,
-        timestamp,
+        FORMAT(timestamp AT TIME ZONE 'SE Asia Standard Time', 'yyyy-MM-dd HH:mm:ss') as timestamp,
         uplink
       FROM dbo.swap
       ORDER BY timestamp DESC
@@ -95,7 +95,7 @@ app.get('/api/active-isps', async (req, res) => {
       SELECT 
         ls.isp,
         ls.ip,
-        ls.timestamp,
+        FORMAT(ls.timestamp AT TIME ZONE 'SE Asia Standard Time', 'yyyy-MM-dd HH:mm:ss') as timestamp,
         ls.uplink as is_active
       FROM LatestSwaps ls
       WHERE ls.rn = 1
@@ -158,7 +158,7 @@ async function initializeDatabase() {
           id INT IDENTITY(1,1) PRIMARY KEY,
           isp NVARCHAR(255),
           ip NVARCHAR(255),
-          timestamp DATETIME2 DEFAULT GETDATE(),
+          timestamp DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time',
           uplink TINYINT DEFAULT 1
         );
         
@@ -518,7 +518,7 @@ async function getNetworkMetrics() {
       getMetricsWithRetry(() => getPublicIpInfo()),
       getMetricsWithRetry(() => si.currentLoad()),
       getMetricsWithRetry(() => si.mem()),
-      getMetricsWithRetry(() => si.time())
+      getMetricsWithRetry(() => Promise.resolve(si.time()))
     ]);
 
     // Check and log ISP changes only every 30 seconds
@@ -529,8 +529,14 @@ async function getNetworkMetrics() {
       lastIspCheck = now;
     }
 
+    // Get current time in Thai timezone
+    const result = await pool.request().query(`
+      SELECT FORMAT(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time', 'yyyy-MM-dd HH:mm:ss') as timestamp
+    `);
+    const timestamp = result.recordset[0].timestamp;
+
     return {
-      timestamp: new Date().toISOString(),
+      timestamp,
       publicIpInfo,
       systemMetrics: {
         cpuLoad: cpuLoad.currentLoad.toFixed(2),
